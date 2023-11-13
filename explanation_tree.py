@@ -173,7 +173,7 @@ class ExplanationTree:
         return clusters
 
     def get_labels_from_clusters(self, clusters):
-        labels = pd.Series(index=self.X.index, dtype="int")
+        labels = pd.Series(0, index=self.X.index, dtype="int")
         for c in clusters:
             labels+=self.X.eval([node.complete_rule for node in self.node_list if node.number==c][0])*c
         return labels
@@ -183,7 +183,7 @@ class ExplanationTree:
 
     def approximate_partition_skrules(self, n_clusters, max_nb_rules=3):
         warnings.filterwarnings("ignore", category=FutureWarning)
-        labels_skrules=pd.Series(index=self.X.index, dtype="int")
+        labels_skrules=pd.Series(0, index=self.X.index, dtype="int")
         # df_explanation = pd.DataFrame(self.explanation.values, index=self.X.index, columns=self.X.columns)
         for i in range(1,n_clusters+1):
             skrules = SkopeRules(max_depth=max_nb_rules, precision_min=0, recall_min=0, feature_names=self.X.columns).fit(self.X, (shc.fcluster(self.link, n_clusters, criterion="maxclust")==i)*1)
