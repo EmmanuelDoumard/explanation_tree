@@ -524,6 +524,7 @@ class HierarchicalExplanationTree(ExplanationTree):
                          parent=None,
                          left_child=None,
                          right_child=None)
+        root_node.compute_dispersion(self.explanation)
         self.node_list.append(root_node)
 
         if limit==-1:
@@ -564,6 +565,8 @@ class HierarchicalExplanationTree(ExplanationTree):
 
                 # contingency = sklearn.metrics.confusion_matrix(labelsdt, dt.predict(self.X[self.X.eval(parent_node.complete_rule) & (labels==label)]))
 
+                parent_node.compute_fisher_p()
+
                 nb+=1
                 left_node = HierarchicalNode(number=nb,
                                 mask=[masks_leafs[np.argmax((dt.tree_.value/dt.tree_.value[0][0])[1][0])]],
@@ -573,6 +576,7 @@ class HierarchicalExplanationTree(ExplanationTree):
                 self.node_list.append(left_node)
                 left_node.set_complete_rule()
                 left_node.compute_f1score(self.X)
+                left_node.compute_dispersion(self.explanation)
                 parent_node.left_child=left_node
 
                 nb+=1
@@ -584,6 +588,7 @@ class HierarchicalExplanationTree(ExplanationTree):
                 self.node_list.append(right_node)
                 right_node.set_complete_rule()
                 right_node.compute_f1score(self.X)
+                right_node.compute_dispersion(self.explanation)
                 parent_node.right_child=right_node
 
     def _find_parent_node(self, mask_to_split):
@@ -600,6 +605,8 @@ class HierarchicalExplanationTree(ExplanationTree):
                                    "HC Cluster size",
                                    "Rule",
                                    "Global F1",
+                                   "Dispersion",
+                                   "Fisher_p",
                                    "Complete rule"])
         
         for node in self.node_list:
@@ -609,6 +616,8 @@ class HierarchicalExplanationTree(ExplanationTree):
                                                node.mask[0].sum() if node.mask is not None else None,
                                                node.rule,
                                                node.f1score,
+                                               node.dispersion,
+                                               node.fisher_p,
                                                node.complete_rule]],
                                              columns=df.columns,
                                              index=[node.number])])
@@ -633,7 +642,6 @@ class HierarchicalExplanationTree(ExplanationTree):
         df_rules["Global F1"] = df_rules["Global F1"].fillna(0)
         df_rules["indexes"] = df_rules.apply(lambda x: self.X[self.X.eval(x["Complete rule"]).values].index.to_list(), axis=1)
         df_rules["confusion matrix"] = [node.dt.tree_.value[1:].reshape((2,2)).astype(int).tolist() if (node.dt is not None and node.dt.tree_.value.shape[0]>2) else None for node in self.node_list]
-        df_rules["fisher_p"] = [scipy.stats.fisher_exact(node.dt.tree_.value[1:].reshape((2,2))) if (node.dt is not None and node.dt.tree_.value.shape[0]>2) else None for node in self.node_list]
         g2 = Graph()
         g2.add_vertices(df_rules.shape[0])
         g2.add_edges([(row["Parent cluster"],index) for index, row in df_rules.iloc[1:].iterrows()])
@@ -661,6 +669,24 @@ class HierarchicalExplanationTree(ExplanationTree):
 
         print(labels)
 
+        # df_rules = df_rules.loc[:,["Parent cluster",    #0
+        #                            "Node type",         #1
+        #                            "Cluster size",      #2
+        #                            "HC Cluster size",   #3
+        #                            "Rule",              #4
+        #                            "Global F1",         #5
+        #                            "Dispersion",        #6
+        #                            "fisher_p"           #7
+        #                            "Complete rule"]]    #8
+
+        hovercolumns = ["Cluster size",
+                        "HC Cluster size",
+                        "Rule",
+                        "Global F1",
+                        "Dispersion",
+                        "Fisher_p",
+                        "Complete rule"]
+
         fig = go.Figure(layout={"height":M*200,"width":1500}) #(np.nanmax(np.array(Xe,dtype=np.float64))-np.nanmin(np.array(Xe,dtype=np.float64)))*150})
         fig.add_trace(go.Scatter(x=Xe,
                         y=Ye,
@@ -673,19 +699,20 @@ class HierarchicalExplanationTree(ExplanationTree):
                                 mode='markers',
                                 name='nodes',
                                 marker=dict(symbol='square',
-                                            # size=df_rules["Cluster size"].astype(int).values,
-                                            # sizemode='area',
-                                            # sizeref=0.1,
-                                            size=50,
-                                            # color=df_rules["Global F1"].astype(float).values,    #'#DB4551',
-                                            # colorscale=[[0, 'rgb(255,0,0)'], [1, 'rgb(0,0,255)']],
-                                            # colorbar={"title": 'F1-score'},
-                                            # showscale=True,
+                                            size=df_rules["Cluster size"].astype(int).values,
+                                            sizemode='area',
+                                            sizeref=0.1,
+                                            # size=50,
+                                            color=df_rules["Dispersion"].astype(float).values,    #'#DB4551',
+                                            colorscale=[[0, 'rgb(255,0,0)'], [1, 'rgb(0,0,255)']],
+                                            colorbar={"title": 'Dispersion'},
+                                            showscale=True,
                                             line=dict(color='rgba(0,0,0,1)', width=1)
                                         ),
                                 text=labels,
                                 customdata=df_rules.values,
-                                hovertemplate='Cluster size: %{customdata[2]}<br>Global F1: %{customdata[5]:.3f}<br>Complete rule: %{customdata[6]}<br>Contingency matrix: %{customdata[8]}<br>Fisher test p-value: %{customdata[9]}',
+                                hovertemplate='<br>'.join([col+': %{customdata['+str(df_rules.columns.get_loc(col))+']}' for col in hovercolumns]),
+                                #hovertemplate='Cluster size: %{customdata['+str(df_rules.columns.get_loc("Cluster size"))+']}<br>Global F1: %{customdata[5]:.3f}<br>Dispersion: %{customdata[6]:.3f}<br>Complete rule: %{customdata[7]}<br>Contingency matrix: %{customdata[9]}<br>Fisher test p-value: %{customdata[10]}',
                                 opacity=0.8
                         ))
 
@@ -705,22 +732,23 @@ class HierarchicalExplanationTree(ExplanationTree):
         decision = widgets.Image(format="png", layout={'border':'1px solid'})
         out = widgets.Output()
         def show_members(trace, points, selector, df_rules=df_rules):
-            # out.clear_output()
-            # with out:
-            #     print(trace)
-            #     print(points)
-            #     display(X.query(trace['customdata'][points.point_inds[0]][-1]))
-            #     print(trace['customdata'][points.point_inds[0]][-1])
+            out.clear_output()
+            with out:
+                print(trace['customdata'][points.point_inds[0]])
+                print("Rule : ")
+                print(self.X.eval(trace['customdata'][points.point_inds[0]][hovercolumns.index("Complete rule")]))
+                print(self.X.eval(trace['customdata'][points.point_inds[0]][index_complete_rule]))
+            index_complete_rule=df_rules.columns.get_loc("Complete rule")
             plt.figure()
             if self.explanation.values.shape[1]>2:
                 plt.scatter(reducer.embedding_[:,0], reducer.embedding_[:,1])
-                plt.scatter(reducer.embedding_[self.X.eval(trace['customdata'][points.point_inds[0]][6]),0],
-                            reducer.embedding_[self.X.eval(trace['customdata'][points.point_inds[0]][6]),1])
+                plt.scatter(reducer.embedding_[self.X.eval(trace['customdata'][points.point_inds[0]][index_complete_rule]),0],
+                            reducer.embedding_[self.X.eval(trace['customdata'][points.point_inds[0]][index_complete_rule]),1])
             else:
                 plt.scatter(self.X.iloc[:,0], self.X.iloc[:,1])
-                plt.scatter(self.X.loc[self.X.eval(trace['customdata'][points.point_inds[0]][6])].iloc[:,0],
-                            self.X.loc[self.X.eval(trace['customdata'][points.point_inds[0]][6])].iloc[:,1])
-            plt.title(trace['customdata'][points.point_inds[0]][6])
+                plt.scatter(self.X.loc[self.X.eval(trace['customdata'][points.point_inds[0]][index_complete_rule])].iloc[:,0],
+                            self.X.loc[self.X.eval(trace['customdata'][points.point_inds[0]][index_complete_rule])].iloc[:,1])
+            plt.title(trace['customdata'][points.point_inds[0]][index_complete_rule])
             plt.savefig("decision_members.png",bbox_inches="tight")
             file = open("decision_members.png","rb")
             image = file.read()
@@ -731,6 +759,7 @@ class HierarchicalExplanationTree(ExplanationTree):
             
             with out:
                 out.clear_output()
+                print(self.to_df().columns.get_loc('Complete rule'))
                 # print(trace['customdata'][points.point_inds[0]][7])
                 # print(points.point_inds[0])
                 # print(self.get_children(points.point_inds[0]))
@@ -950,11 +979,14 @@ class Node:
         self.complete_rule = self._compute_complete_rule(first_call=first_call)
 
 class HierarchicalNode(Node):
-    def __init__(self, number, complete_rule=None, rule=None, node_type=None, parent=None, left_child=None, right_child=None, mask=None, f1score=None, dt=None):
+    def __init__(self, number, complete_rule=None, rule=None, node_type=None, parent=None, left_child=None, right_child=None, mask=None, f1score=None, dt=None, dispersion=None, entropy=None, fisher_p=None):
         Node.__init__(self, number, complete_rule=complete_rule, rule=rule, node_type=node_type, parent=parent, left_child=left_child, right_child=right_child)
         self.mask=mask
         self.f1score=f1score
         self.dt=dt
+        self.dispersion=dispersion
+        self.entropy=entropy
+        self.fisher_p=fisher_p
     
     def compute_f1score(self, X, zero_division=0):
         precision = self._compute_precision(X, zero_division)
@@ -979,6 +1011,17 @@ class HierarchicalNode(Node):
             return sklearn.metrics.recall_score(self.mask[0], X.eval(self.complete_rule), zero_division=zero_division)
         else:
             return sklearn.metrics.recall_score(self.mask, X.eval(self.complete_rule), zero_division=zero_division)
+        
+    def compute_dispersion(self, explanation):
+        if type(self.mask) is list:
+            mean = explanation[self.mask[0]].values.mean(axis=0)
+            self.dispersion = np.linalg.norm(explanation[self.mask[0]].values - mean) / self.mask[0].sum()
+        else:
+            mean = explanation[self.mask].values.mean(axis=0)
+            self.dispersion = np.linalg.norm(explanation[self.mask].values - mean) / self.mask.sum()
+
+    def compute_fisher_p(self):
+        self.fisher_p = scipy.stats.fisher_exact(self.dt.tree_.value[1:].reshape((2,2))) if (self.dt is not None and self.dt.tree_.value.shape[0]>2) else None
 
 class UnsupervisedNode(Node):
     def __init__(self, number, complete_rule=None, rule=None, node_type=None, parent=None, left_child=None, right_child=None, criterion=None):
