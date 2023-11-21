@@ -679,7 +679,8 @@ class HierarchicalExplanationTree(ExplanationTree):
         #                            "fisher_p"           #7
         #                            "Complete rule"]]    #8
 
-        hovercolumns = ["Cluster size",
+        hovercolumns = ["Parent cluster",
+                        "Cluster size",
                         "confusion matrix",
                         "Global F1",
                         "Dispersion",
@@ -761,13 +762,49 @@ class HierarchicalExplanationTree(ExplanationTree):
             
             with out:
                 out.clear_output()
-            f.update_traces(selectedpoints=[df_rules.index.get_loc(i) for i in self.get_children(points.point_inds[0])],
+            f.update_traces(selectedpoints=[df_rules.index.get_loc(i) for i in self.get_children(df_rules.iloc[points.point_inds[0]].name)],
                             mode='markers', selector={"mode":"markers"}, unselected={'marker': { 'color':'grey','opacity': 0.1}}
                             )
             
         f.data[1].on_click(show_members)
     
         return widgets.VBox([f,out,decision])
+    
+    def prune(self, threshold=0.05, verbose=0):
+        """
+        First call of the pruning algorithm
+
+        threshold is the statistical threshold for Fisher test significance before Bonferroni correction
+        """
+
+        n_nodes = len([node for node in self.node_list if node.left_child is not None])
+        self._recur_prune(self, self.node_list[0], threshold=threshold/n_nodes, verbose=verbose)  # Bonferroni correction for Fisher test
+
+    def _recur_prune(self, node, threshold, verbose=0):
+        if node.left_child is None: #leaf
+            return True
+        else:
+            left_prune = self._recur_prune(self, node.left_child, threshold=threshold)
+            right_prune = self._recur_prune(self, node.right_child, threshold=threshold)
+            if left_prune and right_prune:
+                if (node.fisher_p[1] > threshold): #children have been pruned and fisher test is non-significant
+                    if verbose > 0: print("Pruning node ", node.number)
+                    #Prune node
+                    self._prune_node(self, node)
+                    return True
+                else:
+                    return False #Do not prune, and do not prune any parent
+            else:
+                return False #Do not prune, and do not prune any parent
+            
+    def _prune_node(self, node):
+        self.node_list = [elem for elem in self.node_list if elem.number not in {node.left_child.number, node.right_child.number}]
+        #Update node
+        node.left_child = None
+        node.right_child = None
+        node.fisher_p = None
+        node.rule = None
+
 
 class UnsupervisedExplanationTree(ExplanationTree):
     def ud3(self, min_cover, rule_precision=2, parent_node=None):
