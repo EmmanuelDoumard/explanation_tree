@@ -778,19 +778,19 @@ class HierarchicalExplanationTree(ExplanationTree):
         """
 
         n_nodes = len([node for node in self.node_list if node.left_child is not None])
-        self._recur_prune(self, self.node_list[0], threshold=threshold/n_nodes, verbose=verbose)  # Bonferroni correction for Fisher test
+        self._recur_prune(self.node_list[0], threshold=threshold/n_nodes, verbose=verbose)  # Bonferroni correction for Fisher test
 
     def _recur_prune(self, node, threshold, verbose=0):
         if node.left_child is None: #leaf
             return True
         else:
-            left_prune = self._recur_prune(self, node.left_child, threshold=threshold)
-            right_prune = self._recur_prune(self, node.right_child, threshold=threshold)
+            left_prune = self._recur_prune(node.left_child, threshold=threshold)
+            right_prune = self._recur_prune(node.right_child, threshold=threshold)
             if left_prune and right_prune:
                 if (node.fisher_p[1] > threshold): #children have been pruned and fisher test is non-significant
                     if verbose > 0: print("Pruning node ", node.number)
                     #Prune node
-                    self._prune_node(self, node)
+                    self._prune_node(node)
                     return True
                 else:
                     return False #Do not prune, and do not prune any parent
