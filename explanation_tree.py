@@ -644,7 +644,7 @@ class HierarchicalExplanationTree(ExplanationTree):
         df_rules["confusion matrix"] = [node.dt.tree_.value[1:].reshape((2,2)).astype(int).tolist() if (node.dt is not None and node.dt.tree_.value.shape[0]>2) else None for node in self.node_list]
         g2 = Graph()
         g2.add_vertices(df_rules.shape[0])
-        g2.add_edges([(row["Parent cluster"],index) for index, row in df_rules.iloc[1:].iterrows()])
+        g2.add_edges([(df_rules.index.get_loc(row["Parent cluster"]),df_rules.index.get_loc(index)) for index, row in df_rules.iloc[1:].iterrows()])
 
         lay = g2.layout("rt",mode="in", root=[0])
 
@@ -665,7 +665,7 @@ class HierarchicalExplanationTree(ExplanationTree):
             Xe+=[position[edge[0]][0],position[edge[1]][0], None]
             Ye+=[2*M-position[edge[0]][1],2*M-position[edge[1]][1], None]
 
-        labels = v_label.str.split(" ").str.join("<br>")
+        labels = v_label.reset_index(drop=True).str.split(" ").str.join("<br>")
 
         print(labels)
 
@@ -680,8 +680,7 @@ class HierarchicalExplanationTree(ExplanationTree):
         #                            "Complete rule"]]    #8
 
         hovercolumns = ["Cluster size",
-                        "HC Cluster size",
-                        "Rule",
+                        "confusion matrix",
                         "Global F1",
                         "Dispersion",
                         "Fisher_p",
@@ -732,22 +731,24 @@ class HierarchicalExplanationTree(ExplanationTree):
         decision = widgets.Image(format="png", layout={'border':'1px solid'})
         out = widgets.Output()
         def show_members(trace, points, selector, df_rules=df_rules):
-            out.clear_output()
-            with out:
-                print(trace['customdata'][points.point_inds[0]])
-                print("Rule : ")
-                print(self.X.eval(trace['customdata'][points.point_inds[0]][hovercolumns.index("Complete rule")]))
-                print(self.X.eval(trace['customdata'][points.point_inds[0]][index_complete_rule]))
+            # out.clear_output()
+            # with out:
+            #     print(trace['customdata'][points.point_inds[0]])
+            #     print("Rule : ")
+            #     print(self.X.eval(trace['customdata'][points.point_inds[0]][hovercolumns.index("Complete rule")]))
+            #     print(self.X.eval(trace['customdata'][points.point_inds[0]][index_complete_rule]))
             index_complete_rule=df_rules.columns.get_loc("Complete rule")
             plt.figure()
+            mask = self.X.eval(trace['customdata'][points.point_inds[0]][index_complete_rule])
+            #mask.index = [self.X.index.get_loc(i) for i in self.X[mask].index]
             if self.explanation.values.shape[1]>2:
                 plt.scatter(reducer.embedding_[:,0], reducer.embedding_[:,1])
-                plt.scatter(reducer.embedding_[self.X.eval(trace['customdata'][points.point_inds[0]][index_complete_rule]),0],
-                            reducer.embedding_[self.X.eval(trace['customdata'][points.point_inds[0]][index_complete_rule]),1])
+                plt.scatter(reducer.embedding_[mask,0],
+                            reducer.embedding_[mask,1])
             else:
                 plt.scatter(self.X.iloc[:,0], self.X.iloc[:,1])
-                plt.scatter(self.X.loc[self.X.eval(trace['customdata'][points.point_inds[0]][index_complete_rule])].iloc[:,0],
-                            self.X.loc[self.X.eval(trace['customdata'][points.point_inds[0]][index_complete_rule])].iloc[:,1])
+                plt.scatter(self.X.loc[mask].iloc[:,0],
+                            self.X.loc[mask].iloc[:,1])
             plt.title(trace['customdata'][points.point_inds[0]][index_complete_rule])
             plt.savefig("decision_members.png",bbox_inches="tight")
             file = open("decision_members.png","rb")
@@ -756,14 +757,11 @@ class HierarchicalExplanationTree(ExplanationTree):
             decision.value=image
             decision.height=im.shape[0]
             decision.width=im.shape[1]
+            plt.close()
             
             with out:
                 out.clear_output()
-                print(self.to_df().columns.get_loc('Complete rule'))
-                # print(trace['customdata'][points.point_inds[0]][7])
-                # print(points.point_inds[0])
-                # print(self.get_children(points.point_inds[0]))
-            f.update_traces(selectedpoints=self.get_children(points.point_inds[0]),
+            f.update_traces(selectedpoints=[df_rules.index.get_loc(i) for i in self.get_children(points.point_inds[0])],
                             mode='markers', selector={"mode":"markers"}, unselected={'marker': { 'color':'grey','opacity': 0.1}}
                             )
             
