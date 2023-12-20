@@ -14,8 +14,12 @@ import igraph
 from igraph import Graph, EdgeSeq
 import matplotlib.pyplot as plt
 import scipy
+import six
+import sys
+sys.modules['sklearn.externals.six'] = six
 from skrules import SkopeRules
 from tqdm.auto import tqdm
+import time
 
 def format_rule(string, precision=2):
     try:
@@ -131,6 +135,44 @@ def fmeasure(labels, clustering):
                 maxf = f
         fmeasure += (vi/len(labels))*maxf
     return fmeasure
+
+def ari_tree(tree):
+    """
+    Computes the ARI between the hierarchical clustering and the current tree
+    for each cut (number of clusters)
+    """
+    
+    df_tree = tree.to_df()
+    clusters=[0]
+    aris=[]
+    i=0
+    for n_clusters in tqdm(range(2, df_tree["Rule"].isna().sum())):
+        clusters.append(i+1)
+        clusters.append(i+2)
+        clusters.remove(df_tree.loc[i+2,"Parent cluster"])
+        i+=2
+        aris.append(sklearn.metrics.adjusted_rand_score(shc.fcluster(tree.link, n_clusters, criterion='maxclust'), tree.get_labels_from_clusters(clusters)))
+    return aris
+
+def compare_HET_DT(X, explanation, link_expl=None, limit_n_clusters=-1):
+    """
+    Generates HET and CART trees for a given Data/Explanation pair
+    Computes ARIs values for each trees
+    """
+    if link_expl is None:
+        link_expl = shc.linkage(explanation.values, method="ward", metric="euclidean")
+    time1 = time.time()
+    tree_hc = HierarchicalExplanationTree(X, explanation, link=link_expl)
+    tree_hc.approximate_hc_4(limit=limit_n_clusters)
+    time_hc = time.time() - time1
+    time2 = time.time()
+    tree_dt = HierarchicalExplanationTree(X, explanation, link=link_expl)
+    tree_dt.approximate_dt(n_clusters=tree_hc.to_df()["Rule"].isna().sum())
+    time_dt = time.time() - time2
+    aris_hc = ari_tree(tree_hc)
+    aris_dt = ari_tree(tree_dt)
+    #return stats.wilcoxon(aris_hc, aris_dt).pvalue
+    return tree_hc, tree_dt, np.mean(aris_hc), np.mean(aris_dt), time_hc, time_dt, aris_hc, aris_dt
 
 class ExplanationTree:
     def __init__(self, X, explanation, node_list=None, depth=None):
